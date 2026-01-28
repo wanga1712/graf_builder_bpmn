@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List
-import json
-import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
 from domain import ProcessGraph
+from persistence import ProcessRepository
 
 
 def create_app() -> Flask:
@@ -14,7 +13,7 @@ def create_app() -> Flask:
     Создает и настраивает экземпляр Flask приложения.
     """
     app = Flask(__name__, static_folder=".", static_url_path="")
-    process_file_path = os.path.join(os.path.dirname(__file__), "process.json")
+    repository = ProcessRepository()
 
     @app.route("/")
     def index() -> Any:
@@ -77,14 +76,7 @@ def create_app() -> Flask:
         departments: List[str] = payload.get("departments") or []
         steps: List[Dict[str, str]] = payload.get("steps") or []
 
-        data = {
-            "departments": departments,
-            "steps": steps,
-        }
-
-        with open(process_file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
+        repository.save(departments=departments, steps=steps)
         return jsonify({"status": "ok"})
 
     @app.get("/api/process/load")
@@ -92,18 +84,8 @@ def create_app() -> Flask:
         """
         Загружает сохраненный процесс из JSON-файла, если он существует.
         """
-        if not os.path.exists(process_file_path):
-            return jsonify({"departments": [], "steps": []})
-
-        with open(process_file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        return jsonify(
-            {
-                "departments": data.get("departments") or [],
-                "steps": data.get("steps") or [],
-            }
-        )
+        data = repository.load()
+        return jsonify(data)
 
     return app
 
