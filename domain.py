@@ -27,6 +27,7 @@ class ProcessEdge:
     from_id: str
     to_id: str
     label: str = ""
+    branch_type: str = "default"  # default | yes | no | and | or
 
 
 @dataclass
@@ -72,6 +73,7 @@ class ProcessGraph:
                     "from": edge.from_id,
                     "to": edge.to_id,
                     "label": edge.label,
+                    "branch_type": edge.branch_type,
                 }
                 for edge in self.edges
             ],
@@ -115,7 +117,9 @@ class ProcessGraph:
         {"title": "Описание", "department": "Отдел_1", "type": "task"}
         """
         graph = cls()
-        prev_node_id: Optional[str] = None
+
+        # Сначала создаём узлы в порядке следования шагов
+        ordered_nodes: List[ProcessNode] = []
 
         for index, step in enumerate(steps):
             title = (step.get("title") or "").strip()
@@ -128,11 +132,77 @@ class ProcessGraph:
             node_id = f"step_{index + 1}"
             node = ProcessNode(id=node_id, title=title, lane=department, node_type=node_type)
             graph.add_node(node)
+            ordered_nodes.append(node)
 
-            if prev_node_id is not None:
-                edge = ProcessEdge(from_id=prev_node_id, to_id=node_id)
-                graph.add_edge(edge)
+        # Затем создаём связи с учётом условий
+        for index, node in enumerate(ordered_nodes):
+            # Связь от предыдущего шага к текущему
+            if index > 0:
+                prev_node = ordered_nodes[index - 1]
+                # Если текущий узел является условием, всегда соединяем предыдущий с ним
+                if node.node_type.startswith("cond_"):
+                    graph.add_edge(ProcessEdge(from_id=prev_node.id, to_id=node.id))
+                # Если предыдущий узел не условие, соединяем его с текущим как обычный переход
+                elif not prev_node.node_type.startswith("cond_"):
+                    graph.add_edge(ProcessEdge(from_id=prev_node.id, to_id=node.id))
 
-            prev_node_id = node_id
+            # Ветвление для условий
+            if node.node_type == "cond_yes_no":
+                # Да → следующий шаг
+                if index + 1 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 1].id,
+                            branch_type="yes",
+                        )
+                    )
+                # Нет → шаг через один
+                if index + 2 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 2].id,
+                            branch_type="no",
+                        )
+                    )
+
+            elif node.node_type == "cond_and":
+                # И → следующий и шаг через один
+                if index + 1 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 1].id,
+                            branch_type="and",
+                        )
+                    )
+                if index + 2 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 2].id,
+                            branch_type="and",
+                        )
+                    )
+
+            elif node.node_type == "cond_or":
+                # ИЛИ → следующий и шаг через один
+                if index + 1 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 1].id,
+                            branch_type="or",
+                        )
+                    )
+                if index + 2 < len(ordered_nodes):
+                    graph.add_edge(
+                        ProcessEdge(
+                            from_id=node.id,
+                            to_id=ordered_nodes[index + 2].id,
+                            branch_type="or",
+                        )
+                    )
 
         return graph

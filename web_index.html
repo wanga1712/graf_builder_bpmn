@@ -72,6 +72,25 @@
             </div>
             <ul id="departmentsList" class="list-group mb-3"></ul>
 
+            <h5>Фигуры логики</h5>
+            <div class="mb-3 d-flex gap-3 flex-wrap">
+                <div class="d-flex flex-column align-items-center palette-item" draggable="true" data-type="cond_yes_no"
+                     style="cursor: grab;">
+                    <div style="width: 26px; height: 26px; background-color:#fff2cc; border:2px solid #f1c40f; transform: rotate(45deg); margin-bottom: 4px;"></div>
+                    <small class="text-muted" style="font-size: 11px;">Да / Нет</small>
+                </div>
+                <div class="d-flex flex-column align-items-center palette-item" draggable="true" data-type="cond_and"
+                     style="cursor: grab;">
+                    <div style="width: 26px; height: 26px; background-color:#e3f2fd; border:2px solid #2196f3; transform: rotate(45deg); margin-bottom: 4px;"></div>
+                    <small class="text-muted" style="font-size: 11px;">И</small>
+                </div>
+                <div class="d-flex flex-column align-items-center palette-item" draggable="true" data-type="cond_or"
+                     style="cursor: grab;">
+                    <div style="width: 26px; height: 26px; background-color:#fff3e0; border:2px solid #ff9800; transform: rotate(45deg); margin-bottom: 4px;"></div>
+                    <small class="text-muted" style="font-size: 11px;">ИЛИ</small>
+                </div>
+            </div>
+
             <h5>Шаги процесса</h5>
             <p class="text-muted mb-1">
                 Для каждого шага введите название, выберите тип (задача/условие) и кто выполняет.
@@ -101,6 +120,7 @@
     let network = null;
     let departments = [];
     let draggingRow = null;
+    let draggingConditionType = null;
 
     function renderDepartments() {
         const list = document.getElementById('departmentsList');
@@ -403,13 +423,41 @@
         const nodes = new vis.DataSet(nodesData);
 
         const edges = new vis.DataSet(
-                processData.edges.map(edge => ({
-                    from: edge.from,
-                    to: edge.to,
-                    arrows: 'to',
-                    label: edge.label || '',
-                    color: 'gray'
-                }))
+                processData.edges.map(edge => {
+                    const branchType = edge.branch_type || 'default';
+                    let color = 'gray';
+                    let label = edge.label || '';
+
+                    if (branchType === 'yes') {
+                        color = '#4caf50';
+                        if (!label) {
+                            label = 'Да';
+                        }
+                    } else if (branchType === 'no') {
+                        color = '#f44336';
+                        if (!label) {
+                            label = 'Нет';
+                        }
+                    } else if (branchType === 'and') {
+                        color = '#2196f3';
+                        if (!label) {
+                            label = 'И';
+                        }
+                    } else if (branchType === 'or') {
+                        color = '#ff9800';
+                        if (!label) {
+                            label = 'ИЛИ';
+                        }
+                    }
+
+                    return {
+                        from: edge.from,
+                        to: edge.to,
+                        arrows: 'to',
+                        label: label,
+                        color: color
+                    };
+                })
         );
 
         const data = {nodes, edges};
@@ -524,6 +572,64 @@
     document.getElementById('saveBtn').addEventListener('click', saveProcess);
     document.getElementById('generateBtn').addEventListener('click', generateGraph);
 
+    // Инициализация палитры фигур логики
+    function initPalette() {
+        const items = document.querySelectorAll('.palette-item');
+        items.forEach(item => {
+            item.addEventListener('dragstart', event => {
+                draggingConditionType = item.dataset.type || 'cond_yes_no';
+                event.dataTransfer.effectAllowed = 'copy';
+            });
+            item.addEventListener('dragend', () => {
+                draggingConditionType = null;
+            });
+        });
+
+        const container = document.getElementById('stepsContainer');
+
+        container.addEventListener('dragover', event => {
+            if (!draggingConditionType) {
+                return;
+            }
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+        });
+
+        container.addEventListener('drop', event => {
+            if (!draggingConditionType) {
+                return;
+            }
+            event.preventDefault();
+
+            const containerEl = document.getElementById('stepsContainer');
+            const targetRow = event.target.closest('.step-row');
+
+            let dept = '';
+            if (targetRow) {
+                const select = targetRow.querySelector('.step-department');
+                if (select) {
+                    dept = select.value;
+                }
+            }
+            if (!dept && departments.length > 0) {
+                dept = departments[0];
+            }
+
+            addStepRow('', dept, draggingConditionType);
+
+            // Если дропнули на конкретную строку — перемещаем новый шаг перед ней
+            if (targetRow) {
+                const newRow = containerEl.lastElementChild;
+                if (newRow && newRow !== targetRow) {
+                    containerEl.insertBefore(newRow, targetRow);
+                }
+            }
+
+            draggingConditionType = null;
+            generateGraph();
+        });
+    }
+
     // Начальное состояние: пробуем загрузить сохраненный процесс
     (async () => {
         await loadProcess();
@@ -531,9 +637,8 @@
             departments = ['Отдел_1'];
             renderDepartments();
         }
+        initPalette();
     })();
-
-    // При изменении размера окна можно перезагрузить страницу для корректной подгонки
 </script>
 </body>
 </html>
