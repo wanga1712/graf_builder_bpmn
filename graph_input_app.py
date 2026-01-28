@@ -65,6 +65,11 @@ class GraphInputApp(tk.Tk):
             self.show_graph_button = tk.Button(self, text="Показать граф", command=self.graph.render_graph)
             self.show_graph_button.grid(row=12, column=1, padx=5, pady=10)
 
+            # Кнопка для удаления последнего узла
+            self.delete_node_button = tk.Button(self, text="Удалить последний узел", command=self.delete_last_node)
+            self.delete_node_button.grid(row=13, column=1, padx=5, pady=10)
+
+
         except Exception as e:
             logger.exception("Ошибка при создании виджетов")
             self.graph.show_error("Ошибка", f"Ошибка при создании интерфейса: {e}")
@@ -170,6 +175,18 @@ class GraphInputApp(tk.Tk):
         except Exception as e:
             logger.exception("Ошибка при добавлении узла")
             self.graph.show_error("Ошибка", f"Ошибка при добавлении узла: {e}")
+
+    def delete_last_node(self):
+        """
+        Обработчик для удаления последнего добавленного узла в графе.
+        """
+        try:
+            self.graph.delete_last_node()  # Вызов функции удаления узла
+            self.update_display()  # Обновление отображения
+            self.update_edge_menus()  # Обновление меню выбора узлов
+        except Exception as e:
+            logger.exception("Ошибка при удалении узла")
+            self.graph.show_error("Ошибка", f"Ошибка при удалении узла: {e}")
 
     def choose_color(self):
         """

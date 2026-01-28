@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Конструктор бизнес-процессов</title>
+    <link
+            href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+            rel="stylesheet"
+            integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+            crossorigin="anonymous"
+    />
+    <script
+            src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+            integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+            crossorigin="anonymous"
+    ></script>
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.css"
+          integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js"
+            integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ=="
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <style>
+        body {
+            padding: 20px;
+        }
+
+        #network {
+            width: 100%;
+            height: calc(100vh - 140px);
+            border: 1px solid #ccc;
+            background-color: #ffffff;
+            position: relative;
+        }
+
+        .lane-band {
+            position: absolute;
+            left: 0;
+            right: 0;
+            background-color: rgba(230, 230, 230, 0.4);
+            border-top: 1px solid #dddddd;
+            border-bottom: 1px solid #dddddd;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .lane-label {
+            position: absolute;
+            left: 4px;
+            font-size: 12px;
+            color: #555555;
+            transform: rotate(-90deg) translateY(50%);
+            transform-origin: left center;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container-fluid">
+    <div class="row mb-3">
+        <div class="col-md-5">
+            <h3>Настройка процесса</h3>
+
+            <h5 class="mt-3">Отделы / исполнители</h5>
+            <div class="input-group mb-2">
+                <input id="departmentInput" type="text" class="form-control" placeholder="Название отдела">
+                <button id="addDepartmentBtn" class="btn btn-outline-secondary">Добавить отдел</button>
+            </div>
+            <ul id="departmentsList" class="list-group mb-3"></ul>
+
+            <h5>Шаги процесса</h5>
+            <p class="text-muted mb-1">
+                Для каждого шага введите название, выберите тип (задача/условие) и кто выполняет.
+            </p>
+            <div id="stepsContainer" class="mb-2"></div>
+            <button id="addStepBtn" class="btn btn-outline-primary btn-sm mb-2">
+                + Добавить шаг
+            </button>
+
+            <div>
+                <button id="saveBtn" class="btn btn-outline-secondary mt-2 me-2">
+                    Сохранить процесс
+                </button>
+                <button id="generateBtn" class="btn btn-primary mt-2">
+                    Сгенерировать граф
+                </button>
+            </div>
+        </div>
+        <div class="col-md-7">
+            <h3>Визуализация</h3>
+            <div id="network"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let network = null;
+    let departments = [];
+    let draggingRow = null;
+
+    function renderDepartments() {
+        const list = document.getElementById('departmentsList');
+        list.innerHTML = '';
+        departments.forEach((dept, index) => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center py-1';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = dept;
+            nameSpan.style.cursor = 'pointer';
+            nameSpan.title = 'Нажмите, чтобы переименовать отдел';
+
+            nameSpan.onclick = async () => {
+                const newName = prompt('Новое название отдела', dept);
+                if (!newName) {
+                    return;
+                }
+                const trimmed = newName.trim();
+                if (!trimmed || departments.includes(trimmed)) {
+                    return;
+                }
+
+                // Обновляем отдел в списке отделов
+                departments[index] = trimmed;
+
+                // Обновляем отделы в шагах
+                const stepRows = document.querySelectorAll('.step-row');
+                stepRows.forEach(row => {
+                    const select = row.querySelector('.step-department');
+                    if (select.value === dept) {
+                        select.value = trimmed;
+                    }
+                });
+
+                renderDepartments();
+                updateStepSelects();
+            };
+
+            li.appendChild(nameSpan);
+
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-outline-danger';
+            btn.textContent = '×';
+            btn.onclick = async () => {
+                departments.splice(index, 1);
+                renderDepartments();
+                updateStepSelects();
+            };
+            li.appendChild(btn);
+            list.appendChild(li);
+        });
+        updateStepSelects();
+    }
+
+    function updateStepSelects() {
+        const selects = document.querySelectorAll('.step-department');
+        selects.forEach(select => {
+            const currentValue = select.value;
+            select.innerHTML = '';
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = '— не выбрано —';
+            select.appendChild(emptyOption);
+            departments.forEach(dept => {
+                const opt = document.createElement('option');
+                opt.value = dept;
+                opt.textContent = dept;
+                select.appendChild(opt);
+            });
+            if (departments.includes(currentValue)) {
+                select.value = currentValue;
+            }
+        });
+    }
+
+    function addStepRow(initialTitle = '', initialDept = '', initialType = 'task') {
+        const container = document.getElementById('stepsContainer');
+        const row = document.createElement('div');
+        row.className = 'row g-2 align-items-center mb-1 step-row';
+        row.draggable = true;
+
+        const colTitle = document.createElement('div');
+        colTitle.className = 'col-5';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'form-control step-title';
+        input.placeholder = 'Описание шага';
+        input.value = initialTitle;
+        colTitle.appendChild(input);
+
+        const colType = document.createElement('div');
+        colType.className = 'col-3';
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'form-select form-select-sm step-type';
+        [
+            {value: 'task', label: 'Задача'},
+            {value: 'cond_yes_no', label: 'Условие (да/нет)'},
+            {value: 'cond_and', label: 'Условие (И)'},
+            {value: 'cond_or', label: 'Условие (ИЛИ)'}
+        ].forEach(optDef => {
+            const opt = document.createElement('option');
+            opt.value = optDef.value;
+            opt.textContent = optDef.label;
+            typeSelect.appendChild(opt);
+        });
+        typeSelect.value = initialType || 'task';
+        colType.appendChild(typeSelect);
+
+        const colDept = document.createElement('div');
+        colDept.className = 'col-3';
+        const select = document.createElement('select');
+        select.className = 'form-select form-select-sm step-department';
+        colDept.appendChild(select);
+
+        const colRemove = document.createElement('div');
+        colRemove.className = 'col-1 text-end d-flex flex-column align-items-end gap-1';
+
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'btn btn-sm btn-outline-secondary';
+        upBtn.textContent = '↑';
+        upBtn.title = 'Переместить выше';
+        upBtn.onclick = async () => {
+            const prev = row.previousElementSibling;
+            if (prev && prev.classList.contains('step-row')) {
+                container.insertBefore(row, prev);
+                await generateGraph();
+            }
+        };
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-sm btn-outline-danger';
+        removeBtn.textContent = '−';
+        removeBtn.onclick = async () => {
+            row.remove();
+            await generateGraph();
+        };
+        colRemove.appendChild(upBtn);
+        colRemove.appendChild(removeBtn);
+
+        row.appendChild(colTitle);
+        row.appendChild(colType);
+        row.appendChild(colDept);
+        row.appendChild(colRemove);
+        container.appendChild(row);
+
+        // Drag & drop перестановка шагов
+        row.addEventListener('dragstart', () => {
+            draggingRow = row;
+            row.classList.add('bg-light');
+        });
+
+        row.addEventListener('dragend', async () => {
+            row.classList.remove('bg-light');
+            draggingRow = null;
+        });
+
+        row.addEventListener('dragover', event => {
+            event.preventDefault();
+            if (!draggingRow || draggingRow === row) {
+                return;
+            }
+            const bounding = row.getBoundingClientRect();
+            const offset = event.clientY - bounding.top;
+            const shouldInsertBefore = offset < bounding.height / 2;
+            if (shouldInsertBefore) {
+                container.insertBefore(draggingRow, row);
+            } else {
+                const next = row.nextElementSibling;
+                if (next) {
+                    container.insertBefore(draggingRow, next);
+                } else {
+                    container.appendChild(draggingRow);
+                }
+            }
+        });
+
+        row.addEventListener('drop', async event => {
+            event.preventDefault();
+            await generateGraph();
+        });
+
+        updateStepSelects();
+        if (initialDept) {
+            select.value = initialDept;
+        }
+    }
+
+    function collectSteps() {
+        const stepRows = document.querySelectorAll('.step-row');
+        const steps = [];
+        stepRows.forEach(row => {
+            const titleInput = row.querySelector('.step-title');
+            const deptSelect = row.querySelector('.step-department');
+            const typeSelect = row.querySelector('.step-type');
+            const title = titleInput.value.trim();
+            const department = deptSelect.value;
+            const type = typeSelect ? typeSelect.value : 'task';
+            if (title) {
+                steps.push({title, department, type});
+            }
+        });
+        return steps;
+    }
+
+    async function generateGraph() {
+        const steps = collectSteps();
+
+        if (steps.length === 0) {
+            alert('Добавьте хотя бы один шаг процесса.');
+            return;
+        }
+
+        const response = await fetch('/api/process/from-steps', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({steps})
+        });
+
+        if (!response.ok) {
+            alert('Ошибка при генерации графа');
+            return;
+        }
+
+        const data = await response.json();
+        drawNetwork(data);
+    }
+
+    function drawNetwork(processData) {
+        const container = document.getElementById('network');
+
+        const lanes = processData.lanes || [];
+        const laneIndex = {};
+        lanes.forEach((lane, idx) => {
+            laneIndex[lane] = idx;
+        });
+
+        const nodesData = [];
+        const xStep = 220;
+        const containerHeight = container.clientHeight || 600;
+        const laneCount = Math.max(lanes.length, 1);
+        const yStep = containerHeight / (laneCount + 1);
+
+        // Очищаем старые подписи отделов и полосы
+        const oldLaneLabels = container.querySelectorAll('.lane-label');
+        oldLaneLabels.forEach(el => el.remove());
+        const oldLaneBands = container.querySelectorAll('.lane-band');
+        oldLaneBands.forEach(el => el.remove());
+
+        // Добавляем горизонтальные полосы и подписи отделов
+        lanes.forEach((lane, idx) => {
+            const y = yStep * (idx + 1);
+
+            // Полоса отдела (swimlane)
+            const bandDiv = document.createElement('div');
+            bandDiv.className = 'lane-band';
+            bandDiv.style.top = `${y - yStep / 2}px`;
+            bandDiv.style.height = `${yStep}px`;
+            container.appendChild(bandDiv);
+
+            // Подпись отдела
+            const labelDiv = document.createElement('div');
+            labelDiv.className = 'lane-label';
+            labelDiv.textContent = lane;
+            labelDiv.style.top = `${y}px`;
+            container.appendChild(labelDiv);
+        });
+
+        // Добавляем узлы-шага процесса
+        processData.nodes.forEach((node, index) => {
+            const lane = node.lane || '';
+            const laneIdx = laneIndex[lane] !== undefined ? laneIndex[lane] : 0;
+            const x = xStep * (index + 1) + xStep * 0.5;
+            const y = yStep * (laneIdx + 1);
+
+            let shape = 'box';
+            let color = node.color || '#ffffff';
+
+            if (node.node_type && node.node_type.startsWith('cond_')) {
+                shape = 'diamond';
+                color = '#fff2cc';
+            }
+
+            nodesData.push({
+                id: node.id,
+                label: node.title,
+                color: color,
+                shape: shape,
+                x: x,
+                y: y,
+                fixed: {x: true, y: true},
+                physics: false
+            });
+        });
+
+        const nodes = new vis.DataSet(nodesData);
+
+        const edges = new vis.DataSet(
+                processData.edges.map(edge => ({
+                    from: edge.from,
+                    to: edge.to,
+                    arrows: 'to',
+                    label: edge.label || '',
+                    color: 'gray'
+                }))
+        );
+
+        const data = {nodes, edges};
+
+        const options = {
+            physics: {
+                enabled: false
+            },
+            nodes: {
+                font: {size: 16},
+                borderWidth: 2,
+                shape: 'box'
+            },
+            edges: {
+                smooth: {type: 'cubicBezier'},
+                font: {size: 12, align: 'middle'},
+                arrows: {
+                    to: {enabled: true}
+                }
+            }
+        };
+
+        if (network === null) {
+            network = new vis.Network(container, data, options);
+        } else {
+            network.setData(data);
+        }
+    }
+
+    async function internalSaveProcess(showAlert = false) {
+        const steps = collectSteps();
+        const payload = {
+            departments,
+            steps
+        };
+
+        try {
+            const response = await fetch('/api/process/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Save error:', text);
+                if (showAlert) {
+                    alert('Ошибка при сохранении процесса (см. консоль браузера).');
+                }
+                return;
+            }
+
+            if (showAlert) {
+                alert('Процесс сохранён в файле process.json рядом с web_app.py');
+            }
+        } catch (e) {
+            console.error('Save exception:', e);
+            if (showAlert) {
+                alert('Не удалось сохранить процесс (ошибка сети).');
+            }
+        }
+    }
+
+    async function saveProcess() {
+        await internalSaveProcess(true);
+    }
+
+    async function loadProcess() {
+        const response = await fetch('/api/process/load');
+        if (!response.ok) {
+            return;
+        }
+
+        const data = await response.json();
+        departments = data.departments || [];
+        renderDepartments();
+
+        const container = document.getElementById('stepsContainer');
+        container.innerHTML = '';
+        const steps = data.steps || [];
+        if (steps.length === 0) {
+            addStepRow('Первый шаг', departments[0] || '', 'task');
+        } else {
+            steps.forEach(step => {
+                addStepRow(step.title || '', step.department || '', step.type || 'task');
+            });
+        }
+
+        // После загрузки сразу строим граф по сохранённым данным
+        if (steps.length > 0) {
+            await generateGraph();
+        }
+    }
+
+    document.getElementById('addDepartmentBtn').addEventListener('click', async () => {
+        const input = document.getElementById('departmentInput');
+        const value = input.value.trim();
+        if (!value) {
+            return;
+        }
+        if (!departments.includes(value)) {
+            departments.push(value);
+            renderDepartments();
+        }
+        input.value = '';
+        input.focus();
+    });
+
+    document.getElementById('addStepBtn').addEventListener('click', () => addStepRow());
+    document.getElementById('saveBtn').addEventListener('click', saveProcess);
+    document.getElementById('generateBtn').addEventListener('click', generateGraph);
+
+    // Начальное состояние: пробуем загрузить сохраненный процесс
+    (async () => {
+        await loadProcess();
+        if (departments.length === 0) {
+            departments = ['Отдел_1'];
+            renderDepartments();
+        }
+    })();
+
+    // При изменении размера окна можно перезагрузить страницу для корректной подгонки
+</script>
+</body>
+</html>
+
